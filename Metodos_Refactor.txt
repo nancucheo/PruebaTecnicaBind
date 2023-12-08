@@ -1,0 +1,152 @@
+//Metodo 1:
+//----------------------------------------------------------------------------------------------
+// *** Las variables ShopifyPaymentPrice, ShopifyPaymentIsTest, ShopifyPaymentIsQA son Strings.
+
+public ShopifySubscriptionResponseDTO CreateAppSubscription()
+{
+  var shopifySC = new ShopifySC();
+  var subscription = new SubscriptionBillingSC().GetCurrentBindClientSubscription();
+  var ShopifyAddon = subscription.SubscriptionPlan.AddOns.Where(a => a.CategoryID == AddonCategoryCodes.Shopify).FirstOrDefault();
+  if (ShopifyAddon != null)
+  {
+	var returnURL = "https://app.bind.com.mx/Shopify/UpdateShopifySubscription";
+	if (Convert.ToBoolean(Properties.Settings.Default.ShopifyPaymentIsTest))
+	  returnURL = "https://localhost:44300/Shopify/UpdateShopifySubscription";
+	if (Convert.ToBoolean(Properties.Settings.Default.ShopifyPaymentIsQA))
+	  returnURL = "https://app.qa.bind.com.mx/Shopify/UpdateShopifySubscription";
+
+	var subscriptionData = new JSONShopifySubscriptionDTO()
+	{
+	  application_charge = new JSONShopifySubscriptionData()
+	  {
+		name = ShopifyAddon.WebDisplayName,
+		price = Convert.ToDecimal(Properties.Settings.Default.ShopifyPaymentPrice),
+		currency = "USD",
+		return_url = returnURL,
+		test = Convert.ToBoolean(Properties.Settings.Default.ShopifyPaymentIsTest) || Convert.ToBoolean(Properties.Settings.Default.ShopifyPaymentIsQA)
+	  }
+	};
+
+	return shopifySC.CreateAppSubscription(subscriptionData);
+  }
+  else
+	throw new FriendlyException("No se encontró el Addon configurado para shopify");
+}
+
+//Metodo 2:
+//----------------------------------------------------------------------------------------------
+public string GenerateFemsaXML(Guid clientID, string docType, string purchaseOrder, string remision, string entrada, DateTime? start, DateTime? end, string currency)
+{
+  var client = new ClientSC().GetClientByID(clientID);
+  if (client.AddendaType != AddendaTypeCodes.FEMSA || client.AddendaFemsa == null)
+	throw new FriendlyException("Ocurrió un error al generar la addenda de FEMSA, favor de verificar que el cliente tenga los datos requeridos por la addenda.");
+
+
+
+
+  if (string.IsNullOrWhiteSpace(client.AddendaFemsa.Sociedad))
+	throw new FriendlyException("Ocurrió un error al generar la addenda de FEMSA, favor de verificar que el cliente tenga el numero de Sociedad.");
+
+  if (string.IsNullOrWhiteSpace(client.AddendaFemsa.Proveedor))
+	throw new FriendlyException("Ocurrió un error al generar la addenda de FEMSA, favor de verificar que el cliente tenga el numero de Proveedor.");
+
+  var email = "";
+
+  if (client.Employee1 != null)
+	email = client.Employee1.Email;
+
+  var addenda = "";
+
+  if (docType == "1")
+  {
+	if (string.IsNullOrWhiteSpace(purchaseOrder))
+	  throw new FriendlyException("Ocurrió un error al generar la addenda de FEMSA, favor de verificar el número de pedido.");
+
+	if (string.IsNullOrWhiteSpace(currency))
+	  throw new FriendlyException("Ocurrió un error al generar la addenda de FEMSA, favor de verificar la moneda.");
+
+	if (string.IsNullOrWhiteSpace(entrada))
+	  throw new FriendlyException("Ocurrió un error al generar la addenda de FEMSA, favor de verificar el número de entrada.");
+
+
+
+	addenda = string.Format(
+				"<cfdi:Addenda>" +
+				  "<Documento>" +
+					"<FacturaFemsa>" +
+					  "<noVersAdd>1</noVersAdd>" +
+					  "<claseDoc>{0}</claseDoc>" +
+					  "<noSociedad>{1}</noSociedad>" +
+					  "<noProveedor>{2}</noProveedor>" +
+					  "<noPedido>{3}</noPedido>" +
+					  "<moneda>{4}</moneda>" +
+					  "<noEntrada>{5}</noEntrada>" +
+					  "<noRemision>{6}</noRemision>" +
+					  "<noSocio/>" +
+					  "<centroCostos/>" +
+					  "<iniPerLiq/>" +
+					  "<finPerLiq/>" +
+					  "<retencion1/>" +
+					  "<retencion2/>" +
+					  "<email>{7}</email>" +
+					"</FacturaFemsa>" +
+				  "</Documento>" +
+				"</cfdi:Addenda>",
+				docType,
+				client.AddendaFemsa.Sociedad.PadLeft(4, '0'),
+				client.AddendaFemsa.Proveedor,
+				purchaseOrder,
+				currency,
+				entrada,
+				remision,
+				email
+				);
+  }
+  else if (docType == "2")
+  {
+	if (string.IsNullOrWhiteSpace(client.AddendaFemsa.CECO))
+	  throw new FriendlyException("Ocurrió un error al generar la addenda de FEMSA, favor de verificar que el cliente tenga el Centro de Costos.");
+
+
+	if (start == null)
+	  throw new FriendlyException("Ocurrió un error al generar la addenda de FEMSA, favor de verificar la fecha de inicio.");
+
+
+	if (end == null)
+	  throw new FriendlyException("Ocurrió un error al generar la addenda de FEMSA, favor de verificar la fecha final.");
+
+	addenda = string.Format(
+			   "<cfdi:Addenda>" +
+				 "<Documento>" +
+				   "<FacturaFemsa>" +
+					 "<noVersAdd>1</noVersAdd>" +
+					 "<claseDoc>{0}</claseDoc>" +
+					 "<noSociedad>{1}</noSociedad>" +
+					 "<noProveedor>{2}</noProveedor>" +
+					 "<noPedido/>" +
+					 "<moneda>{3}</moneda>" +
+					 "<noEntrada/>" +
+					 "<noRemision/>" +
+					 "<noSocio/>" +
+					 "<centro>{4}</centro>" +
+					 "<iniPerLiq>{5}</iniPerLiq>" +
+					 "<finPerLiq>{6}</finPerLiq>" +
+					 "<retencion1/>" +
+					 "<retencion2/>" +
+					 "<email>{7}</email>" +
+				   "</FacturaFemsa>" +
+				 "</Documento>" +
+			   "</cfdi:Addenda>",
+			   docType,
+			   client.AddendaFemsa.Sociedad.PadLeft(4, '0'),
+			   client.AddendaFemsa.Proveedor,
+			   currency,
+			   client.AddendaFemsa.CECO,
+			   start.Value.ToString("dd.MM.yyyy"),
+			   end.Value.ToString("dd.MM.yyyy"),
+			   email
+			   );
+  }
+
+  return addenda;
+}
